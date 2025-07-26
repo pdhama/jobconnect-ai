@@ -1,0 +1,2 @@
+SYSTEM: Write a concise cover letter (<200 words) referencing {{job.title}} at {{job.company}}.  
+Use at least three keywords from the JD. End with a call-to-action.

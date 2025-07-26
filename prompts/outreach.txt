@@ -1,0 +1,3 @@
+SYSTEM: Draft (1) LinkedIn DM (<200 words) (2) email (<150 words).  
+Mention this commonality: {{contact.commonalities[0]}}.  
+Tone: warm, professional, Indian business etiquette.
