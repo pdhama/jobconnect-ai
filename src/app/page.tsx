@@ -7,9 +7,13 @@ import { JobSearch } from "@/components/features/job-search"
 import { ResumeBuilder } from "@/components/features/resume-builder"
 import { CoverLetterGenerator } from "@/components/features/cover-letter-generator"
 import { Networking } from "@/components/features/networking"
+import { useAuth } from "@/contexts/auth-context"
+import { ProtectedRoute } from "@/components/auth/protected-route"
+import { AuthFlow } from "@/components/auth/auth-flow"
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState("dashboard")
+  const { user, signOut } = useAuth()
 
   const renderContent = () => {
     switch (activeTab) {
@@ -50,6 +54,16 @@ export default function Home() {
                   <h3 className="font-semibold text-foreground mb-1">Notification Settings</h3>
                   <p className="text-sm text-muted-foreground">Control how and when you receive updates</p>
                 </div>
+                <div className="p-4 border border-border rounded-xl bg-muted/30">
+                  <h3 className="font-semibold text-foreground mb-1">Account</h3>
+                  <p className="text-sm text-muted-foreground mb-3">Signed in as {user?.email}</p>
+                  <button
+                    onClick={signOut}
+                    className="px-4 py-2 bg-destructive text-destructive-foreground rounded-lg hover:bg-destructive/90 transition-colors"
+                  >
+                    Sign Out
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -60,13 +74,15 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 dark:from-background dark:via-background dark:to-muted/10">
-      <Navigation activeTab={activeTab} onTabChange={setActiveTab} />
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-        <div className="animate-fade-in">
-          {renderContent()}
-        </div>
-      </main>
-    </div>
+    <ProtectedRoute>
+      <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 dark:from-background dark:via-background dark:to-muted/10">
+        <Navigation activeTab={activeTab} onTabChange={setActiveTab} />
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
+          <div className="animate-fade-in">
+            {renderContent()}
+          </div>
+        </main>
+      </div>
+    </ProtectedRoute>
   )
 }

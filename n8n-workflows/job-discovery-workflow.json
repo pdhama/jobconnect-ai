@@ -1,0 +1,316 @@
+{
+  "name": "JobConnect AI - Automated Job Discovery",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Cron Trigger (Weekdays 9am)",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Holiday & Weekend Check for JobConnect AI\n// Check if today is a weekend or holiday\n\nconst today = new Date();\nconst dayOfWeek = today.getDay(); // 0 = Sunday, 6 = Saturday\nconst todayStr = today.toISOString().split('T')[0];\n\n// Weekend check\nif (dayOfWeek === 0 || dayOfWeek === 6) {\n  console.log(`🚫 Skipping job discovery - Weekend (${dayOfWeek === 0 ? 'Sunday' : 'Saturday'})`);\n  return [];\n}\n\n// Holiday check (India & Pakistan 2025)\nconst holidays = [\n  '2025-01-26', // Republic Day (India)\n  '2025-08-15', // Independence Day (India)\n  '2025-10-02', // Gandhi Jayanti (India)\n  '2025-01-01', // New Year\n  '2025-05-01', // Labour Day\n  '2025-03-23', // Pakistan Day\n  '2025-08-14', // Independence Day (Pakistan)\n  '2025-09-06', // Defence Day (Pakistan)\n  '2025-11-09'  // Iqbal Day (Pakistan)\n];\n\nif (holidays.includes(todayStr)) {\n  console.log(`🚫 Skipping job discovery - Holiday (${todayStr})`);\n  return [];\n}\n\nconsole.log(`✅ Proceeding with job discovery - Business day (${todayStr})`);\nreturn [{ json: { date: todayStr, proceed: true } }];"
+      },
+      "id": "holiday-check",
+      "name": "Holiday & Weekend Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": "user_job_preferences",
+        "additionalFields": {},
+        "options": {}
+      },
+      "id": "fetch-preferences",
+      "name": "Fetch Active User Preferences",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate Search URLs for LinkedIn and Naukri\n// Based on user preferences\n\nconst items = $input.all();\nconst searchUrls = [];\n\nfor (const item of items) {\n  const preferences = item.json;\n  \n  if (!preferences.keywords || !preferences.location) {\n    continue;\n  }\n  \n  const keywords = Array.isArray(preferences.keywords) \n    ? preferences.keywords.join(' ') \n    : preferences.keywords;\n  \n  const location = preferences.location;\n  \n  // LinkedIn search URL\n  const linkedinQuery = `${keywords} jobs ${location} site:linkedin.com/jobs`;\n  searchUrls.push({\n    json: {\n      platform: 'linkedin',\n      query: linkedinQuery,\n      keywords: preferences.keywords,\n      location: location,\n      userId: preferences.user_id,\n      experienceLevel: preferences.experience_level,\n      jobType: preferences.job_type\n    }\n  });\n  \n  // Naukri search URL\n  const naukriQuery = `${keywords} jobs ${location} site:naukri.com`;\n  searchUrls.push({\n    json: {\n      platform: 'naukri',\n      query: naukriQuery,\n      keywords: preferences.keywords,\n      location: location,\n      userId: preferences.user_id,\n      experienceLevel: preferences.experience_level,\n      jobType: preferences.job_type\n    }\n  });\n}\n\nconsole.log(`🔍 Generated ${searchUrls.length} search URLs`);\nreturn searchUrls;"
+      },
+      "id": "generate-urls",
+      "name": "Generate Search URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search.json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "engine",
+              "value": "google"
+            },
+            {
+              "name": "q",
+              "value": "={{ $json.query }}"
+            },
+            {
+              "name": "api_key",
+              "value": "={{ $env.SERP_API_KEY }}"
+            },
+            {
+              "name": "num",
+              "value": "10"
+            },
+            {
+              "name": "gl",
+              "value": "in"
+            },
+            {
+              "name": "hl",
+              "value": "en"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "linkedin-search",
+      "name": "LinkedIn SERP Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search.json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "engine",
+              "value": "google"
+            },
+            {
+              "name": "q",
+              "value": "={{ $json.query }}"
+            },
+            {
+              "name": "api_key",
+              "value": "={{ $env.SERP_API_KEY }}"
+            },
+            {
+              "name": "num",
+              "value": "10"
+            },
+            {
+              "name": "gl",
+              "value": "in"
+            },
+            {
+              "name": "hl",
+              "value": "en"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "naukri-search",
+      "name": "Naukri SERP Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse and Filter Jobs from SERP Results\n// Extract job information and filter by freshness\n\nconst items = $input.all();\nconst allJobs = [];\nconst now = new Date();\nconst freshnessHours = 24; // Only jobs from last 24 hours\n\nfor (const item of items) {\n  const searchData = item.json;\n  const serpResults = searchData.organic_results || [];\n  \n  for (const result of serpResults) {\n    // Skip if not a job posting\n    if (!result.link || !result.title) continue;\n    \n    // Extract job information\n    const job = {\n      title: result.title,\n      company: extractCompany(result.title, result.snippet),\n      location: searchData.location || '',\n      job_url: result.link,\n      description: result.snippet || '',\n      platform: searchData.platform,\n      posted_time: new Date().toISOString(), // Default to now\n      keywords_matched: searchData.keywords,\n      relevance_score: 0,\n      freshness_score: 100,\n      user_id: searchData.userId,\n      experience_level: searchData.experienceLevel,\n      job_type: searchData.jobType\n    };\n    \n    // Try to extract posted time from title/snippet\n    const timeMatch = extractPostedTime(result.title + ' ' + result.snippet);\n    if (timeMatch) {\n      job.posted_time = timeMatch;\n      job.freshness_score = calculateFreshnessScore(timeMatch);\n    }\n    \n    // Only include if fresh enough\n    if (job.freshness_score > 0) {\n      allJobs.push(job);\n    }\n  }\n}\n\nconsole.log(`📋 Parsed ${allJobs.length} fresh jobs`);\nreturn allJobs.map(job => ({ json: job }));\n\n// Helper functions\nfunction extractCompany(title, snippet) {\n  // Simple extraction - can be enhanced\n  const text = (title + ' ' + (snippet || '')).toLowerCase();\n  const companyPatterns = [\n    /at\\s+([a-zA-Z\\s&]+?)\\s+(?:in|jobs|hiring)/,\n    /([a-zA-Z\\s&]+?)\\s+is\\s+hiring/,\n    /([a-zA-Z\\s&]+?)\\s+careers/\n  ];\n  \n  for (const pattern of companyPatterns) {\n    const match = text.match(pattern);\n    if (match) return match[1].trim();\n  }\n  \n  return 'Unknown Company';\n}\n\nfunction extractPostedTime(text) {\n  const timePatterns = [\n    /(\\d+)\\s+(?:hours?|hrs?)\\s+ago/i,\n    /(\\d+)\\s+(?:days?)\\s+ago/i,\n    /posted\\s+(?:\\d+)\\s+(?:hours?|days?)\\s+ago/i\n  ];\n  \n  for (const pattern of timePatterns) {\n    const match = text.match(pattern);\n    if (match) {\n      const hours = parseInt(match[1]);\n      const postedTime = new Date(Date.now() - (hours * 60 * 60 * 1000));\n      return postedTime.toISOString();\n    }\n  }\n  \n  return null;\n}\n\nfunction calculateFreshnessScore(postedTime) {\n  const posted = new Date(postedTime);\n  const hoursDiff = (now - posted) / (1000 * 60 * 60);\n  const score = Math.max(0, 100 - (hoursDiff * 4)); // 4 points per hour\n  return Math.round(score);\n}"
+      },
+      "id": "parse-jobs",
+      "name": "Parse and Filter Jobs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calculate Relevance Scores for Jobs\n// Based on keywords, location, and user preferences\n\nconst items = $input.all();\n\nfor (const item of items) {\n  const job = item.json;\n  \n  // Calculate keyword relevance (60% of total score)\n  const keywordScore = calculateKeywordRelevance(job.title + ' ' + job.description, job.keywords_matched);\n  \n  // Calculate location relevance (20% of total score)\n  const locationScore = calculateLocationRelevance(job.location, job.location);\n  \n  // Freshness score (20% of total score)\n  const freshnessScore = job.freshness_score * 0.2;\n  \n  // Calculate total relevance score\n  const totalScore = Math.round(keywordScore + locationScore + freshnessScore);\n  \n  job.relevance_score = Math.max(0, Math.min(100, totalScore));\n}\n\nconsole.log(`🎯 Calculated relevance scores for ${items.length} jobs`);\nreturn items;\n\n// Helper functions\nfunction calculateKeywordRelevance(text, keywords) {\n  if (!keywords || !Array.isArray(keywords)) return 0;\n  \n  const textLower = text.toLowerCase();\n  let score = 0;\n  \n  for (const keyword of keywords) {\n    const keywordLower = keyword.toLowerCase();\n    if (textLower.includes(keywordLower)) {\n      score += 10; // 10 points per keyword match\n    }\n  }\n  \n  return Math.min(60, score); // Cap at 60 points\n}\n\nfunction calculateLocationRelevance(jobLocation, userLocation) {\n  if (!jobLocation || !userLocation) return 0;\n  \n  const jobLoc = jobLocation.toLowerCase();\n  const userLoc = userLocation.toLowerCase();\n  \n  if (jobLoc.includes(userLoc) || userLoc.includes(jobLoc)) {\n    return 20; // Full location score\n  }\n  \n  // Partial match\n  const jobWords = jobLoc.split(/[\\s,]+/);\n  const userWords = userLoc.split(/[\\s,]+/);\n  \n  for (const jobWord of jobWords) {\n    for (const userWord of userWords) {\n      if (jobWord.length > 2 && userWord.length > 2 && \n          (jobWord.includes(userWord) || userWord.includes(jobWord))) {\n        return 10; // Partial location score\n      }\n    }\n  }\n  \n  return 0;\n}"
+      },
+      "id": "calculate-scores",
+      "name": "Calculate Relevance Scores",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "table": "jobs",
+        "columns": "job_url",
+        "additionalFields": {
+          "title": "={{ $json.title }}",
+          "company": "={{ $json.company }}",
+          "location": "={{ $json.location }}",
+          "job_url": "={{ $json.job_url }}",
+          "description": "={{ $json.description }}",
+          "platform": "={{ $json.platform }}",
+          "posted_time": "={{ $json.posted_time }}",
+          "keywords_matched": "={{ $json.keywords_matched }}",
+          "relevance_score": "={{ $json.relevance_score }}",
+          "freshness_score": "={{ $json.freshness_score }}"
+        },
+        "options": {}
+      },
+      "id": "store-jobs",
+      "name": "Store Jobs in Supabase",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log Workflow Execution Summary\n\nconst items = $input.all();\nconst executionTime = Date.now() - new Date($('Cron Trigger (Weekdays 9am)').first().json.timestamp).getTime();\n\nconst summary = {\n  timestamp: new Date().toISOString(),\n  jobs_found: items.length,\n  execution_time_ms: executionTime,\n  status: 'completed',\n  message: `JobConnect AI workflow completed successfully. Found ${items.length} jobs in ${Math.round(executionTime/1000)}s.`\n};\n\nconsole.log(`✅ ${summary.message}`);\nreturn [{ json: summary }];"
+      },
+      "id": "log-execution",
+      "name": "Log Workflow Execution",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 300]
+    }
+  ],
+  "connections": {
+    "Cron Trigger (Weekdays 9am)": {
+      "main": [
+        [
+          {
+            "node": "Holiday & Weekend Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Holiday & Weekend Check": {
+      "main": [
+        [
+          {
+            "node": "Fetch Active User Preferences",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Active User Preferences": {
+      "main": [
+        [
+          {
+            "node": "Generate Search URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Search URLs": {
+      "main": [
+        [
+          {
+            "node": "LinkedIn SERP Search",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Naukri SERP Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LinkedIn SERP Search": {
+      "main": [
+        [
+          {
+            "node": "Parse and Filter Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Naukri SERP Search": {
+      "main": [
+        [
+          {
+            "node": "Parse and Filter Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse and Filter Jobs": {
+      "main": [
+        [
+          {
+            "node": "Calculate Relevance Scores",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Relevance Scores": {
+      "main": [
+        [
+          {
+            "node": "Store Jobs in Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Jobs in Supabase": {
+      "main": [
+        [
+          {
+            "node": "Log Workflow Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2025-01-29T12:00:00.000Z",
+      "updatedAt": "2025-01-29T12:00:00.000Z",
+      "id": "jobconnect-ai",
+      "name": "JobConnect AI"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2025-01-29T12:00:00.000Z",
+  "versionId": "1"
+} 
