@@ -1,0 +1,333 @@
+{
+  "name": "JobConnect AI - Automated Job Discovery (FIXED)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Cron Trigger (Weekdays 9am)",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Holiday & Weekend Check for JobConnect AI\n// Check if today is a weekend or holiday\n\nconst today = new Date();\nconst dayOfWeek = today.getDay(); // 0 = Sunday, 6 = Saturday\nconst todayStr = today.toISOString().split('T')[0];\n\n// Weekend check\nif (dayOfWeek === 0 || dayOfWeek === 6) {\n  console.log(`🚫 Skipping job discovery - Weekend (${dayOfWeek === 0 ? 'Sunday' : 'Saturday'})`);\n  return [];\n}\n\n// Holiday check (India & Pakistan 2025)\nconst holidays = [\n  '2025-01-26', // Republic Day (India)\n  '2025-08-15', // Independence Day (India)\n  '2025-10-02', // Gandhi Jayanti (India)\n  '2025-01-01', // New Year\n  '2025-05-01', // Labour Day\n  '2025-03-23', // Pakistan Day\n  '2025-08-14', // Independence Day (Pakistan)\n  '2025-09-06', // Defence Day (Pakistan)\n  '2025-11-09'  // Iqbal Day (Pakistan)\n];\n\nif (holidays.includes(todayStr)) {\n  console.log(`🚫 Skipping job discovery - Holiday (${todayStr})`);\n  return [];\n}\n\nconsole.log(`✅ Proceeding with job discovery - Business day (${todayStr})`);\nreturn [{ json: { date: todayStr, proceed: true } }];"
+      },
+      "id": "holiday-check",
+      "name": "Holiday & Weekend Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": "user_job_preferences",
+        "additionalFields": {
+          "selectConditions": {
+            "conditions": [
+              {
+                "name": "is_active",
+                "value": "true"
+              }
+            ]
+          }
+        },
+        "options": {}
+      },
+      "id": "fetch-preferences",
+      "name": "Fetch Active User Preferences (FIXED)",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate Search URLs for LinkedIn and Naukri\n// Based on user preferences\n\nconst items = $input.all();\nconst searchUrls = [];\n\nfor (const item of items) {\n  const preferences = item.json;\n  \n  if (!preferences.keywords || !preferences.location) {\n    console.log('⚠️ Skipping preference - missing keywords or location');\n    continue;\n  }\n  \n  const keywords = Array.isArray(preferences.keywords) \n    ? preferences.keywords.join(' ') \n    : preferences.keywords;\n  \n  const location = preferences.location;\n  \n  // LinkedIn search URL\n  const linkedinQuery = `${keywords} jobs ${location} site:linkedin.com/jobs`;\n  searchUrls.push({\n    json: {\n      platform: 'linkedin',\n      query: linkedinQuery,\n      keywords: preferences.keywords,\n      location: location,\n      userId: preferences.user_id,\n      experienceLevel: preferences.experience_level,\n      jobType: preferences.job_type\n    }\n  });\n  \n  // Naukri search URL\n  const naukriQuery = `${keywords} jobs ${location} site:naukri.com`;\n  searchUrls.push({\n    json: {\n      platform: 'naukri',\n      query: naukriQuery,\n      keywords: preferences.keywords,\n      location: location,\n      userId: preferences.user_id,\n      experienceLevel: preferences.experience_level,\n      jobType: preferences.job_type\n    }\n  });\n}\n\nconsole.log(`🔍 Generated ${searchUrls.length} search URLs from ${items.length} preferences`);\nreturn searchUrls;"
+      },
+      "id": "generate-urls",
+      "name": "Generate Search URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search.json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "engine",
+              "value": "google"
+            },
+            {
+              "name": "q",
+              "value": "={{ $json.query }}"
+            },
+            {
+              "name": "api_key",
+              "value": "={{ $env.SERP_API_KEY }}"
+            },
+            {
+              "name": "num",
+              "value": "10"
+            },
+            {
+              "name": "gl",
+              "value": "in"
+            },
+            {
+              "name": "hl",
+              "value": "en"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "linkedin-search",
+      "name": "LinkedIn SERP Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search.json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "engine",
+              "value": "google"
+            },
+            {
+              "name": "q",
+              "value": "={{ $json.query }}"
+            },
+            {
+              "name": "api_key",
+              "value": "={{ $env.SERP_API_KEY }}"
+            },
+            {
+              "name": "num",
+              "value": "10"
+            },
+            {
+              "name": "gl",
+              "value": "in"
+            },
+            {
+              "name": "hl",
+              "value": "en"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "naukri-search",
+      "name": "Naukri SERP Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse SERP Results and Extract Job Information\n// For LinkedIn and Naukri job listings\n\nconst items = $input.all();\nconst jobs = [];\n\nfor (const item of items) {\n  const searchData = item.json;\n  const serpResults = item.json.organic_results || [];\n  \n  if (!serpResults.length) {\n    console.log(`⚠️ No results found for ${searchData.platform} search`);\n    continue;\n  }\n  \n  for (const result of serpResults) {\n    try {\n      // Extract job information from SERP result\n      const jobTitle = result.title || '';\n      const jobUrl = result.link || '';\n      const jobSnippet = result.snippet || '';\n      \n      // Skip if not a job listing\n      if (!jobTitle.toLowerCase().includes('job') && \n          !jobTitle.toLowerCase().includes('career') &&\n          !jobUrl.includes('/jobs/')) {\n        continue;\n      }\n      \n      // Extract company name from title or snippet\n      const companyMatch = jobTitle.match(/(.*?)\\s+(?:job|career|position|role)/i) ||\n                          jobSnippet.match(/(.*?)\\s+(?:job|career|position|role)/i);\n      const company = companyMatch ? companyMatch[1].trim() : 'Unknown Company';\n      \n      // Calculate freshness score (0-100)\n      const postedTime = new Date();\n      const freshnessScore = Math.max(0, 100 - (Date.now() - postedTime.getTime()) / (1000 * 60 * 60));\n      \n      const job = {\n        title: jobTitle,\n        company: company,\n        location: searchData.location,\n        job_url: jobUrl,\n        description: jobSnippet,\n        platform: searchData.platform,\n        posted_time: postedTime.toISOString(),\n        keywords_matched: searchData.keywords,\n        relevance_score: 75, // Default score, will be calculated by database\n        freshness_score: Math.round(freshnessScore),\n        user_id: searchData.userId,\n        experience_level: searchData.experienceLevel,\n        job_type: searchData.jobType ? searchData.jobType[0] : 'full-time'\n      };\n      \n      jobs.push({ json: job });\n    } catch (error) {\n      console.log(`⚠️ Error processing job result: ${error.message}`);\n    }\n  }\n}\n\nconsole.log(`💼 Extracted ${jobs.length} jobs from SERP results`);\nreturn jobs;"
+      },
+      "id": "parse-jobs",
+      "name": "Parse Job Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "jobs",
+        "columns": {
+          "parameters": [
+            {
+              "name": "title",
+              "value": "={{ $json.title }}"
+            },
+            {
+              "name": "company",
+              "value": "={{ $json.company }}"
+            },
+            {
+              "name": "location",
+              "value": "={{ $json.location }}"
+            },
+            {
+              "name": "job_url",
+              "value": "={{ $json.job_url }}"
+            },
+            {
+              "name": "description",
+              "value": "={{ $json.description }}"
+            },
+            {
+              "name": "platform",
+              "value": "={{ $json.platform }}"
+            },
+            {
+              "name": "posted_time",
+              "value": "={{ $json.posted_time }}"
+            },
+            {
+              "name": "keywords_matched",
+              "value": "={{ $json.keywords_matched }}"
+            },
+            {
+              "name": "relevance_score",
+              "value": "={{ $json.relevance_score }}"
+            },
+            {
+              "name": "freshness_score",
+              "value": "={{ $json.freshness_score }}"
+            },
+            {
+              "name": "user_id",
+              "value": "={{ $json.user_id }}"
+            },
+            {
+              "name": "experience_level",
+              "value": "={{ $json.experience_level }}"
+            },
+            {
+              "name": "job_type",
+              "value": "={{ $json.job_type }}"
+            }
+          ]
+        },
+        "options": {
+          "conflictColumns": ["job_url"]
+        }
+      },
+      "id": "store-jobs",
+      "name": "Store Jobs in Database",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log Job Discovery Results\n// Summary of the job discovery process\n\nconst items = $input.all();\nconst summary = {\n  timestamp: new Date().toISOString(),\n  total_jobs_found: items.length,\n  platforms_searched: ['linkedin', 'naukri'],\n  status: 'success'\n};\n\nconsole.log(`🎉 Job discovery completed successfully!`);\nconsole.log(`📊 Total jobs found: ${summary.total_jobs_found}`);\nconsole.log(`🔍 Platforms searched: ${summary.platforms_searched.join(', ')}`);\n\nreturn [{ json: summary }];"
+      },
+      "id": "log-results",
+      "name": "Log Job Discovery Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 300]
+    }
+  ],
+  "connections": {
+    "Cron Trigger (Weekdays 9am)": {
+      "main": [
+        [
+          {
+            "node": "Holiday & Weekend Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Holiday & Weekend Check": {
+      "main": [
+        [
+          {
+            "node": "Fetch Active User Preferences (FIXED)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Active User Preferences (FIXED)": {
+      "main": [
+        [
+          {
+            "node": "Generate Search URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Search URLs": {
+      "main": [
+        [
+          {
+            "node": "LinkedIn SERP Search",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Naukri SERP Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LinkedIn SERP Search": {
+      "main": [
+        [
+          {
+            "node": "Parse Job Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Naukri SERP Search": {
+      "main": [
+        [
+          {
+            "node": "Parse Job Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Job Results": {
+      "main": [
+        [
+          {
+            "node": "Store Jobs in Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Jobs in Database": {
+      "main": [
+        [
+          {
+            "node": "Log Job Discovery Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+} 
